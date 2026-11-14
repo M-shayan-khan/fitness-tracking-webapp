@@ -31,7 +31,7 @@ const getWorkouts = async (req, res) => {
 // @access  Private
 const createWorkout = async (req, res) => {
   try {
-    const { exercise, category, tags, sets, reps, weight, duration } = req.body;
+    const { exercise, category, tags, sets, reps, weight, duration, notes } = req.body;
 
     // Exercise aur category lazmi hain
     if (!exercise || !category) {
@@ -42,16 +42,39 @@ const createWorkout = async (req, res) => {
       user: req.user._id,
       exercise,
       category,
-      tags: tags || [],             // Optional tags array
+      tags: tags || [],            // Optional tags array
       sets: sets || 0,              // Default 0 (useful for cardio)
       reps: reps || 0,              // Default 0 (useful for cardio)
       weight: weight || 0,          // Default 0 kg
-      duration: duration || 0       // Default 0 minutes (useful for cardio/HIIT)
+      duration: duration || 0,
+      notes: notes || ''            // Ab yeh req.body se notes uthayega
     });
 
     res.status(201).json(workout);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Update a workout
+// @route   PUT /api/workouts/:id
+// @access  Private
+const updateWorkout = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updatedWorkout = await Workout.findOneAndUpdate(
+      { _id: id, user: req.user._id }, // Ensure user owns the workout
+      req.body,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedWorkout) {
+      return res.status(404).json({ message: 'Workout not found or unauthorized' });
+    }
+
+    res.status(200).json({ success: true, data: updatedWorkout });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -81,5 +104,6 @@ const deleteWorkout = async (req, res) => {
 module.exports = {
   getWorkouts,
   createWorkout,
+  updateWorkout,
   deleteWorkout
 };

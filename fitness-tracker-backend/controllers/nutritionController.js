@@ -39,6 +39,28 @@ const addNutritionRecord = async (req, res) => {
     }
 };
 
+// @desc    Update a nutrition record
+// @route   PUT /api/nutrition/:id
+// @access  Private
+const updateNutrition = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updatedNutrition = await Nutrition.findOneAndUpdate(
+      { _id: id, user: req.user._id }, // Ensure user owns this log
+      req.body,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedNutrition) {
+      return res.status(404).json({ success: false, message: 'Nutrition log not found or unauthorized' });
+    }
+
+    res.status(200).json({ success: true, data: updatedNutrition });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // @desc    Delete a nutrition record
 // @route   DELETE /api/nutrition/:id
 // @access  Private
@@ -112,6 +134,7 @@ const getNutritionSummary = async (req, res) => {
 module.exports = {
     getNutritionRecords,
     addNutritionRecord,
+    updateNutrition,
     deleteNutritionRecord,
     getNutritionSummary
 };

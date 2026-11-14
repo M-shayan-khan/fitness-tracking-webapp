@@ -35,6 +35,10 @@ const workoutSchema = new mongoose.Schema({
     type: Number, // <--- Duration in minutes (Cardio / HIIT ke liye bohot zaroori)
     default: 0
   },
+  notes: { 
+    type: String,
+    default: ''
+  },
   date: {
     type: Date,
     default: Date.now
