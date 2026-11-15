@@ -1,14 +1,17 @@
 const express = require('express');
 const router = express.Router();
+const auth = require('../middleware/auth');
 const {
-  getDashboardSummary,
-  exportWorkoutsCSV,
-  exportWorkoutsPDF // <--- Add this
+    getUserDashboard,
+    getWorkoutAnalytics,
+    getNutritionAnalytics
 } = require('../controllers/dashboardController');
-const { protect } = require('../middleware/authMiddleware');
 
-router.get('/summary', protect, getDashboardSummary);
-router.get('/export/workouts', protect, exportWorkoutsCSV);      // CSV Format
-router.get('/export/workouts-pdf', protect, exportWorkoutsPDF);  // PDF Format
+// Saare dashboard routes protected hain
+router.use(auth);
+
+router.get('/', getUserDashboard);
+router.get('/workout-analytics', getWorkoutAnalytics);
+router.get('/nutrition-analytics', getNutritionAnalytics);
 
 module.exports = router;

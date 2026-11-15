@@ -1,152 +1,269 @@
-const PDFDocument = require('pdfkit');
+const mongoose = require('mongoose');
 const Workout = require('../models/Workout');
 const Nutrition = require('../models/Nutrition');
 const Progress = require('../models/Progress');
 
-// @desc    Get overall dashboard analytics & stats summary
-// @route   GET /api/dashboard/summary
-// @access  Private
-const getDashboardSummary = async (req, res) => {
-  try {
-    const userId = req.user._id;
+// ==========================================
+// 1. GET USER DASHBOARD OVERVIEW (Existing)
+// ==========================================
+const getUserDashboard = async (req, res) => {
+    try {
+        const userId = req.user.id;
 
-    // 1. Total Workouts Count
-    const totalWorkouts = await Workout.countDocuments({ user: userId });
-
-    // 2. Today's Calories & Macros
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
-
-    const todayNutrition = await Nutrition.aggregate([
-      {
-        $match: {
-          user: userId,
-          date: { $gte: startOfDay, $lte: endOfDay }
+        const limit = req.query.limit ? parseInt(req.query.limit) : 5;
+        if (isNaN(limit) || limit < 1 || limit > 50) {
+            return res.status(400).json({
+                message: 'Limit must be a valid number between 1 and 50.'
+            });
         }
-      },
-      {
-        $group: {
-          _id: null,
-          totalCalories: { $sum: '$calories' },
-          totalProtein: { $sum: '$protein' },
-          totalCarbs: { $sum: '$carbs' },
-          totalFats: { $sum: '$fats' }
-        }
-      }
-    ]);
 
-    // 3. Weight Overview (First & Current Weight)
-    const weightProgress = await Progress.find({ user: userId }).sort({ date: 1 });
+        const [recentWorkouts, recentNutritionLogs, recentProgress] = await Promise.all([
+            Workout.find({ user: userId }).sort({ createdAt: -1 }).limit(limit),
+            Nutrition.find({ user: userId }).sort({ date: -1, createdAt: -1 }).limit(limit),
+            Progress.find({ user: userId }).sort({ date: -1, createdAt: -1 }).limit(limit)
+        ]);
 
-    const startWeight = weightProgress.length > 0 ? weightProgress[0].weight : null;
-    const currentWeight = weightProgress.length > 0 ? weightProgress[weightProgress.length - 1].weight : null;
+        res.status(200).json({
+            recentWorkouts,
+            recentNutritionLogs,
+            recentProgress
+        });
 
-    res.status(200).json({
-      totalWorkouts,
-      todayNutrition: todayNutrition.length > 0 ? todayNutrition[0] : {
-        totalCalories: 0,
-        totalProtein: 0,
-        totalCarbs: 0,
-        totalFats: 0
-      },
-      weightSummary: {
-        startWeight,
-        currentWeight,
-        weightChange: (startWeight && currentWeight) ? (currentWeight - startWeight).toFixed(2) : 0
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// @desc    Export Workout logs as CSV file
-// @route   GET /api/dashboard/export/workouts
-// @access  Private
-const exportWorkoutsCSV = async (req, res) => {
-  try {
-    const workouts = await Workout.find({ user: req.user._id }).sort({ date: -1 });
-
-    // CSV Header row
-    let csv = 'Title,Exercise Type,Sets,Reps,Weight (kg),Duration (mins),Date\n';
-
-    // CSV Data rows
-    workouts.forEach((w) => {
-      const title = `"${w.title || ''}"`;
-      const type = `"${w.exerciseType || ''}"`;
-      const sets = w.sets || 0;
-      const reps = w.reps || 0;
-      const weight = w.weight || 0;
-      const duration = w.duration || 0;
-      const date = w.date ? new Date(w.date).toISOString().split('T')[0] : '';
-
-      csv += `${title},${type},${sets},${reps},${weight},${duration},${date}\n`;
-    });
-
-    // Set headers for file download
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename=workout_logs.csv');
-    res.status(200).send(csv);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// @desc    Export Workout logs as PDF file
-// @route   GET /api/dashboard/export/workouts-pdf
-// @access  Private
-const exportWorkoutsPDF = async (req, res) => {
-  try {
-    const workouts = await Workout.find({ user: req.user._id }).sort({ date: -1 });
-
-    const doc = new PDFDocument({ margin: 30 });
-
-    // Response headers for PDF download
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename=workout_logs.pdf');
-
-    doc.pipe(res);
-
-    // PDF Header / Title
-    doc.fontSize(20).text('Fitness Tracker - Workout Logs', { align: 'center' });
-    doc.moveDown();
-    doc.fontSize(12).text(`Generated for User: ${req.user.name || req.user.email}`);
-    doc.text(`Date: ${new Date().toLocaleDateString()}`);
-    doc.moveDown();
-
-    // Table Header
-    doc.fontSize(10).fillColor('blue').text('Title | Exercise | Sets | Reps | Weight(kg) | Duration(m) | Date');
-    doc.fillColor('black').text('---------------------------------------------------------------------------------------------------');
-    doc.moveDown(0.5);
-
-    // Workout Rows
-    if (workouts.length === 0) {
-      doc.text('No workout logs found.');
-    } else {
-      workouts.forEach((w, index) => {
-        const title = w.title || 'N/A';
-        const type = w.exerciseType || 'N/A';
-        const sets = w.sets || 0;
-        const reps = w.reps || 0;
-        const weight = w.weight || 0;
-        const duration = w.duration || 0;
-        const date = w.date ? new Date(w.date).toISOString().split('T')[0] : 'N/A';
-
-        doc.text(`${index + 1}. ${title} | ${type} | ${sets} sets | ${reps} reps | ${weight} kg | ${duration} mins | ${date}`);
-      });
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error fetching dashboard overview' });
     }
+};
 
-    // Finalize PDF file
-    doc.end();
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+// ==========================================
+// 2. WORKOUT ANALYTICS (Charts & Graphs Data)
+// ==========================================
+const getWorkoutAnalytics = async (req, res) => {
+    try {
+        const userId = new mongoose.Types.ObjectId(req.user.id);
+
+        // Optional days filter validation (default: last 30 days)
+        const days = req.query.days ? parseInt(req.query.days) : 30;
+        if (isNaN(days) || days < 1 || days > 365) {
+            return res.status(400).json({
+                message: 'Days parameter must be a number between 1 and 365.'
+            });
+        }
+
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+
+        // A. Progress in Lifting Weights (Date-wise max & average weight)
+        const liftingProgress = await Workout.aggregate([
+            {
+                $match: {
+                    user: userId,
+                    createdAt: { $gte: startDate },
+                    weights: { $gt: 0 }
+                }
+            },
+            {
+                $group: {
+                    _id: {
+                        date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+                        exerciseName: '$exerciseName'
+                    },
+                    maxWeight: { $max: '$weights' },
+                    totalVolume: { $sum: { $multiply: ['$sets', '$reps', '$weights'] } }
+                }
+            },
+            { $sort: { '_id.date': 1 } },
+            {
+                $project: {
+                    _id: 0,
+                    date: '$_id.date',
+                    exerciseName: '$_id.exerciseName',
+                    maxWeight: 1,
+                    totalVolume: 1
+                }
+            }
+        ]);
+
+        // B. Workout Frequency (Date-wise count + Category distribution)
+        const workoutFrequency = await Workout.aggregate([
+            {
+                $match: {
+                    user: userId,
+                    createdAt: { $gte: startDate }
+                }
+            },
+            {
+                $group: {
+                    _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+                    workoutsCount: { $sum: 1 }
+                }
+            },
+            { $sort: { _id: 1 } },
+            {
+                $project: {
+                    _id: 0,
+                    date: '$_id',
+                    workoutsCount: 1
+                }
+            }
+        ]);
+
+        const categoryDistribution = await Workout.aggregate([
+            { $match: { user: userId, createdAt: { $gte: startDate } } },
+            {
+                $group: {
+                    _id: '$category',
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    category: '$_id',
+                    count: 1
+                }
+            }
+        ]);
+
+        // C. Exercise History (Har exercise ka summary & records)
+        const exerciseHistory = await Workout.aggregate([
+            { $match: { user: userId } },
+            { $sort: { createdAt: -1 } },
+            {
+                $group: {
+                    _id: '$exerciseName',
+                    totalSessions: { $sum: 1 },
+                    maxWeightLifted: { $max: '$weights' },
+                    lastPerformed: { $first: '$createdAt' },
+                    recentSets: { $first: '$sets' },
+                    recentReps: { $first: '$reps' }
+                }
+            },
+            { $sort: { lastPerformed: -1 } },
+            {
+                $project: {
+                    _id: 0,
+                    exerciseName: '$_id',
+                    totalSessions: 1,
+                    maxWeightLifted: 1,
+                    lastPerformed: 1,
+                    recentSets: 1,
+                    recentReps: 1
+                }
+            }
+        ]);
+
+        res.status(200).json({
+            liftingProgress,
+            workoutFrequency,
+            categoryDistribution,
+            exerciseHistory
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error fetching workout analytics' });
+    }
+};
+
+// ==========================================
+// 3. NUTRITION ANALYTICS (Calories, Macros & Trends)
+// ==========================================
+const getNutritionAnalytics = async (req, res) => {
+    try {
+        const userId = new mongoose.Types.ObjectId(req.user.id);
+
+        // Optional days filter validation (default: last 30 days)
+        const days = req.query.days ? parseInt(req.query.days) : 30;
+        if (isNaN(days) || days < 1 || days > 365) {
+            return res.status(400).json({
+                message: 'Days parameter must be a number between 1 and 365.'
+            });
+        }
+
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+
+        // A. Daily Consumption Trends (Date-wise Calories & Macros)
+        const dailyTrends = await Nutrition.aggregate([
+            {
+                $match: {
+                    user: userId,
+                    date: { $gte: startDate }
+                }
+            },
+            {
+                $group: {
+                    _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+                    totalCalories: { $sum: '$calories' },
+                    totalProtein: { $sum: '$macros.protein' },
+                    totalCarbs: { $sum: '$macros.carbs' },
+                    totalFats: { $sum: '$macros.fats' },
+                    mealsCount: { $sum: 1 }
+                }
+            },
+            { $sort: { _id: 1 } },
+            {
+                $project: {
+                    _id: 0,
+                    date: '$_id',
+                    totalCalories: 1,
+                    totalProtein: 1,
+                    totalCarbs: 1,
+                    totalFats: 1,
+                    mealsCount: 1
+                }
+            }
+        ]);
+
+        // B. Overall Calorie Intake & Macronutrient Distribution
+        const macroTotals = await Nutrition.aggregate([
+            {
+                $match: {
+                    user: userId,
+                    date: { $gte: startDate }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalCalories: { $sum: '$calories' },
+                    totalProtein: { $sum: '$macros.protein' },
+                    totalCarbs: { $sum: '$macros.carbs' },
+                    totalFats: { $sum: '$macros.fats' }
+                }
+            }
+        ]);
+
+        const totals = macroTotals[0] || {
+            totalCalories: 0,
+            totalProtein: 0,
+            totalCarbs: 0,
+            totalFats: 0
+        };
+
+        const totalMacroGrams = totals.totalProtein + totals.totalCarbs + totals.totalFats;
+
+        const macronutrientDistribution = {
+            proteinGrams: totals.totalProtein,
+            carbsGrams: totals.totalCarbs,
+            fatsGrams: totals.totalFats,
+            proteinPercentage: totalMacroGrams > 0 ? Math.round((totals.totalProtein / totalMacroGrams) * 100) : 0,
+            carbsPercentage: totalMacroGrams > 0 ? Math.round((totals.totalCarbs / totalMacroGrams) * 100) : 0,
+            fatsPercentage: totalMacroGrams > 0 ? Math.round((totals.totalFats / totalMacroGrams) * 100) : 0
+        };
+
+        res.status(200).json({
+            totalCalorieIntake: totals.totalCalories,
+            macronutrientDistribution,
+            dailyConsumptionTrends: dailyTrends
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error fetching nutrition analytics' });
+    }
 };
 
 module.exports = {
-  getDashboardSummary,
-  exportWorkoutsCSV,
-  exportWorkoutsPDF
+    getUserDashboard,
+    getWorkoutAnalytics,
+    getNutritionAnalytics
 };

@@ -1,15 +1,21 @@
 const express = require('express');
 const router = express.Router();
+const auth = require('../middleware/auth');
 const {
-  getProgressRecords,
-  addProgressRecord,
-  deleteProgressRecord,
-  getProgressAnalytics
+    addProgress,
+    getProgressHistory,
+    getProgressChartData,
+    updateProgress,
+    deleteProgress
 } = require('../controllers/progressController');
-const { protect } = require('../middleware/authMiddleware');
 
-router.get('/analytics', protect, getProgressAnalytics); // <--- Weight & Metrics Analytics API
-router.route('/').get(protect, getProgressRecords).post(protect, addProgressRecord);
-router.route('/:id').delete(protect, deleteProgressRecord);
+// Saare progress routes protected hain
+router.use(auth);
+
+router.post('/', addProgress);
+router.get('/', getProgressHistory);
+router.get('/chart-data', getProgressChartData); // Graphs ke liye formatted data
+router.put('/:id', updateProgress);
+router.delete('/:id', deleteProgress);
 
 module.exports = router;

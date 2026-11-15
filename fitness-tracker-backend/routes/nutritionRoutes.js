@@ -1,16 +1,19 @@
 const express = require('express');
 const router = express.Router();
+const auth = require('../middleware/auth');
 const {
-  getNutritionRecords,
-  addNutritionRecord,
-  updateNutrition,
-  deleteNutritionRecord,
-  getNutritionSummary
+    addNutritionLog,
+    getNutritionLogs,
+    updateNutritionLog,
+    deleteNutritionLog
 } = require('../controllers/nutritionController');
-const { protect } = require('../middleware/authMiddleware');
 
-router.get('/summary', protect, getNutritionSummary); // <--- Daily Summary API
-router.route('/').get(protect, getNutritionRecords).post(protect, addNutritionRecord);
-router.route('/:id').delete(protect, deleteNutritionRecord).put( protect, updateNutrition);
+// Saare nutrition routes protected hain
+router.use(auth);
+
+router.post('/', addNutritionLog);
+router.get('/', getNutritionLogs);
+router.put('/:id', updateNutritionLog);
+router.delete('/:id', deleteNutritionLog);
 
 module.exports = router;

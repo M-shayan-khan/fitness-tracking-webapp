@@ -1,109 +1,201 @@
+const mongoose = require('mongoose');
 const Workout = require('../models/Workout');
+const { createNotification } = require('./notificationController');
 
-// @desc    Get all workouts for logged-in user (with optional category & tag filters)
-// @route   GET /api/workouts
-// @access  Private
-const getWorkouts = async (req, res) => {
-  try {
-    const { category, tag } = req.query;
-    let query = { user: req.user._id };
-
-    // Agar category query mein di gayi hai
-    if (category) {
-      query.category = category;
-    }
-
-    // Agar tag query mein diya gaya hai
-    if (tag) {
-      query.tags = tag; // MongoDB array matching
-    }
-
-    // req.user._id humein protect middleware se mil raha hai
-    const workouts = await Workout.find(query).sort({ createdAt: -1 });
-    res.status(200).json(workouts);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// @desc    Create a new workout
-// @route   POST /api/workouts
-// @access  Private
+// ==========================================
+// 1. CREATE WORKOUT ROUTINE
+// ==========================================
 const createWorkout = async (req, res) => {
-  try {
-    const { exercise, category, tags, sets, reps, weight, duration, notes } = req.body;
+    try {
+        const { exerciseName, sets, reps, weights, notes, category, tags } = req.body;
 
-    // Exercise aur category lazmi hain
-    if (!exercise || !category) {
-      return res.status(400).json({ message: 'Please fill in all required fields (exercise and category)' });
+        // Input Validations
+        if (!exerciseName || !sets || !reps || !category) {
+            return res.status(400).json({
+                message: 'Exercise name, sets, reps, and category are required.'
+            });
+        }
+
+        if (sets < 1 || reps < 1) {
+            return res.status(400).json({
+                message: 'Sets and reps must be at least 1.'
+            });
+        }
+
+        if (weights !== undefined && weights < 0) {
+            return res.status(400).json({
+                message: 'Weights cannot be negative.'
+            });
+        }
+
+        if (tags && !Array.isArray(tags)) {
+            return res.status(400).json({
+                message: 'Tags must be an array of strings.'
+            });
+        }
+
+        const newWorkout = new Workout({
+            user: req.user.id,
+            exerciseName,
+            sets,
+            reps,
+            weights: weights || 0,
+            notes: notes || '',
+            category,
+            tags: tags || []
+        });
+
+        await newWorkout.save();
+
+        await createNotification(req.user.id, 'workout_completion', `You completed workout: ${exerciseName}`);
+
+        res.status(201).json({
+            message: 'Workout routine created successfully!',
+            workout: newWorkout
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message || 'Server Error creating workout' });
     }
-
-    const workout = await Workout.create({
-      user: req.user._id,
-      exercise,
-      category,
-      tags: tags || [],            // Optional tags array
-      sets: sets || 0,              // Default 0 (useful for cardio)
-      reps: reps || 0,              // Default 0 (useful for cardio)
-      weight: weight || 0,          // Default 0 kg
-      duration: duration || 0,
-      notes: notes || ''            // Ab yeh req.body se notes uthayega
-    });
-
-    res.status(201).json(workout);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
 };
 
-// @desc    Update a workout
-// @route   PUT /api/workouts/:id
-// @access  Private
+// ==========================================
+// 2. GET ALL WORKOUTS (With Category & Tag Filter)
+// ==========================================
+const getWorkouts = async (req, res) => {
+    try {
+        const { category, tag } = req.query;
+
+        // Sirf logged-in user ke workouts layein
+        let filter = { user: req.user.id };
+
+        // Agar query mein category ya tag bheja jaye toh filter karein
+        if (category) {
+            filter.category = category.toLowerCase();
+        }
+        if (tag) {
+            filter.tags = tag;
+        }
+
+        const workouts = await Workout.find(filter).sort({ createdAt: -1 });
+
+        res.status(200).json(workouts);
+
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error fetching workouts' });
+    }
+};
+
+// ==========================================
+// 3. EDIT / UPDATE WORKOUT ROUTINE
+// ==========================================
 const updateWorkout = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const updatedWorkout = await Workout.findOneAndUpdate(
-      { _id: id, user: req.user._id }, // Ensure user owns the workout
-      req.body,
-      { new: true, runValidators: true }
-    );
+    try {
+        const { id } = req.params;
 
-    if (!updatedWorkout) {
-      return res.status(404).json({ message: 'Workout not found or unauthorized' });
+        // Valid MongoDB ObjectId check
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ message: 'Invalid workout ID.' });
+        }
+
+        const workout = await Workout.findById(id);
+        if (!workout) {
+            return res.status(404).json({ message: 'Workout routine not found.' });
+        }
+
+        // Security Check: Kya yeh workout isi user ka hai?
+        if (workout.user.toString() !== req.user.id) {
+            return res.status(403).json({ message: 'Not authorized to edit this workout.' });
+        }
+
+        const { exerciseName, sets, reps, weights, notes, category, tags } = req.body;
+
+        // Field-by-field validation & update
+        if (exerciseName !== undefined) {
+            if (exerciseName.trim() === '') {
+                return res.status(400).json({ message: 'Exercise name cannot be empty.' });
+            }
+            workout.exerciseName = exerciseName;
+        }
+
+        if (sets !== undefined) {
+            if (sets < 1) return res.status(400).json({ message: 'Sets must be at least 1.' });
+            workout.sets = sets;
+        }
+
+        if (reps !== undefined) {
+            if (reps < 1) return res.status(400).json({ message: 'Reps must be at least 1.' });
+            workout.reps = reps;
+        }
+
+        if (weights !== undefined) {
+            if (weights < 0) return res.status(400).json({ message: 'Weights cannot be negative.' });
+            workout.weights = weights;
+        }
+
+        if (notes !== undefined) {
+            workout.notes = notes;
+        }
+
+        if (category !== undefined) {
+            if (category.trim() === '') {
+                return res.status(400).json({ message: 'Category cannot be empty.' });
+            }
+            workout.category = category;
+        }
+
+        if (tags !== undefined) {
+            if (!Array.isArray(tags)) {
+                return res.status(400).json({ message: 'Tags must be an array of strings.' });
+            }
+            workout.tags = tags;
+        }
+
+        await workout.save();
+
+        res.status(200).json({
+            message: 'Workout routine updated successfully!',
+            workout
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message || 'Server Error updating workout' });
     }
-
-    res.status(200).json({ success: true, data: updatedWorkout });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
 };
 
-// @desc    Delete a workout
-// @route   DELETE /api/workouts/:id
-// @access  Private
+// ==========================================
+// 4. DELETE WORKOUT ROUTINE
+// ==========================================
 const deleteWorkout = async (req, res) => {
-  try {
-    const workout = await Workout.findById(req.params.id);
+    try {
+        const { id } = req.params;
 
-    if (!workout) {
-      return res.status(404).json({ message: 'Workout not found' });
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ message: 'Invalid workout ID.' });
+        }
+
+        const workout = await Workout.findById(id);
+        if (!workout) {
+            return res.status(404).json({ message: 'Workout routine not found.' });
+        }
+
+        // Security Check: Ownership verify karein
+        if (workout.user.toString() !== req.user.id) {
+            return res.status(403).json({ message: 'Not authorized to delete this workout.' });
+        }
+
+        await workout.deleteOne();
+
+        res.status(200).json({ message: 'Workout routine deleted successfully!' });
+
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error deleting workout' });
     }
-
-    // Check karo ke yeh workout usi user ka hai ya nahi jo delete karna chahta hai
-    if (workout.user.toString() !== req.user._id.toString()) {
-      return res.status(401).json({ message: 'User not authorized' });
-    }
-
-    await workout.deleteOne();
-    res.status(200).json({ message: 'Workout removed', id: req.params.id });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
 };
 
 module.exports = {
-  getWorkouts,
-  createWorkout,
-  updateWorkout,
-  deleteWorkout
+    createWorkout,
+    getWorkouts,
+    updateWorkout,
+    deleteWorkout
 };
