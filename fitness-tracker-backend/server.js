@@ -19,12 +19,20 @@ const preferenceRoutes = require('./routes/preferenceRoutes');
 dotenv.config();
 connectDB();
 
+const morgan = require('morgan');
 const app = express();
 
 // Middlewares
 app.use(express.json());
 app.use(cors());
 app.use('/uploads', express.static('uploads')); // Uploaded profile pictures ke liye
+
+// Morgan logger (Development ke liye 'dev' format best hai jo method, route, status code aur response time print karta hai)
+if (process.env.NODE_ENV === 'production') {
+    app.use(morgan('combined')); // Production ke liye detailed logs
+} else {
+    app.use(morgan('dev')); // Development ke liye color-coded short logs
+}
 
 // ROUTES MIDDLEWARE
 app.use('/api/auth', userRoutes);
